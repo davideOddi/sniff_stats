@@ -1,0 +1,5 @@
+{
+ "watch_dir": "/opt/data/pcap_input",
+ "output_dir": "/opt/data/pcap_output",
+ "parallelism": 4
+}
