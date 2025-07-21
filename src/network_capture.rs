@@ -1,10 +1,11 @@
 use crate::pcap_helper::packet_mapper;
 use crate::model::PacketData;
-use pcap::{Capture, Packet};
+use pcap::{Capture};
 use serde::ser::StdError;
 
 pub fn pcap_reader(file_path: &str) -> Result<Vec<PacketData>, Box<dyn StdError>> {
     print!("Lettura file: {} ", file_path);
+
     let mut capture = match Capture::from_file(file_path) {
         Ok(cap) => cap,
         Err(e) => return Err(format!("{} nell'apertura del file PCAP {}",
@@ -14,15 +15,13 @@ pub fn pcap_reader(file_path: &str) -> Result<Vec<PacketData>, Box<dyn StdError>
     let mut data_packets: Vec<PacketData> = Vec::new();
 
     while let Ok(packet) = capture.next() {
-        //let packet_data = parse_packet(&packet);
+
         if let Some(packet_data) = packet_mapper(packet.data) {
-            println!("{:?}", packet_data);
             data_packets.push(packet_data);
         }
 
-        //data_packets.push(packet_data);
     }
-    return Ok((data_packets));
+    return Ok(data_packets);
 
     
 }

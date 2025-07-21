@@ -7,7 +7,7 @@ use pnet::packet::Packet;
 use pnet::packet::ip::IpNextHeaderProtocols;
 
 /* implementazione blackboxed */
-//toDo: implementare lettura dei pacchetti per byte
+//toDo: implementare lettura dei pacchetti per bytes
 pub fn packet_mapper(packet_data: &[u8]) -> Option<PacketData> {
     let ethernet: EthernetPacket<'_> = EthernetPacket::new(packet_data)?;
 

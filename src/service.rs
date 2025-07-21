@@ -17,7 +17,20 @@ pub fn load_config() -> Config {
     return config;
 }
 
-pub fn monitor_network()-> Vec<model::PacketData> {
-    return network_capture::pcap_reader("/home/davide/rustRepo/sniff_stats/test.pcap")
+pub fn monitor_network(){
+    let file_path = "/home/davide/rustRepo/sniff_stats/test.pcap";
+    let packets: Vec<model::PacketData> = retrieve_data_packets(file_path);
+    println!("Pacchetti catturati: {:?}", packets.len());
+    let stats: model::NetworkStats = generate_network_stats(packets);
+    println!("Statistiche di rete: {:?}", stats);
+
+}
+
+fn retrieve_data_packets(file_path: &str)-> Vec<model::PacketData> {
+    return network_capture::pcap_reader(file_path)
         .expect("Errore nella lettura del file PCAP");
+}
+
+fn generate_network_stats(data_packets: Vec<model::PacketData>) -> model::NetworkStats {
+    return crate::stat_helper::generate_stats(data_packets);
 }
