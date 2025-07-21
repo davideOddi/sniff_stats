@@ -1,5 +1,7 @@
-use util::Config;
+use crate::model;
+use model::Config;
 use crate::util;
+use crate::network_capture;
 
 
 pub fn load_config() -> Config {
@@ -13,4 +15,9 @@ pub fn load_config() -> Config {
         }
     };
     return config;
+}
+
+pub fn monitor_network()-> Vec<model::PacketData> {
+    return network_capture::pcap_reader("/home/davide/rustRepo/sniff_stats/test.pcap")
+        .expect("Errore nella lettura del file PCAP");
 }
