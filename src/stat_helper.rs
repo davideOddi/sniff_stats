@@ -1,6 +1,7 @@
 use crate::model::PacketData;
 use crate::model::NetworkStats;
 use std::collections::HashMap;
+use crate::model::ProtocolKey;
 
 pub fn generate_stats(data_packets: Vec<PacketData>) -> NetworkStats{
     let mut stats = NetworkStats {
@@ -17,9 +18,25 @@ pub fn generate_stats(data_packets: Vec<PacketData>) -> NetworkStats{
 
     for packet in data_packets {
         stats.total_bytes_packet += packet.packet_length as u64;
-        *stats.by_protocol.entry(packet.protocol_type).or_insert(0) += 1;
+        // Incremento le statistiche per ogni layer del protocollo 
+        *stats.by_protocol.entry(ProtocolKey::Internet
+            (packet.internet_layer)).or_insert(0) += 1;
+
+        if let Some(transport_layer) = packet.transport_layer {
+            *stats.by_protocol.entry(ProtocolKey::Transport(transport_layer))
+                .or_insert(0) += 1;
+        }
+        if let Some(application_layer) = packet.application_layer {
+            *stats.by_protocol.entry(ProtocolKey::Application(application_layer))
+                .or_insert(0) += 1;
+        }   
+
         *ip_frequency_map.entry(packet.source_ip).or_insert(0) += 1;
+        *ip_frequency_map.entry(packet.destination_ip).or_insert(0) += 1;
+
         *port_frequency_map.entry(packet.source_port).or_insert(0) += 1;
+        *port_frequency_map.entry(packet.destination_port).or_insert(0) += 1;
+
     }
     
     stats.top_10_ips = sort_values_by_frequency(ip_frequency_map);  

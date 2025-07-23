@@ -1,64 +1,97 @@
-use crate::model::{PacketData, ProtocolType};
-use pnet::packet::ethernet::{EtherTypes, EthernetPacket};
-use pnet::packet::ipv4::Ipv4Packet;
-use pnet::packet::tcp::TcpPacket;
-use pnet::packet::udp::UdpPacket;
-use pnet::packet::Packet;
-use pnet::packet::ip::IpNextHeaderProtocols;
+use crate::model::{PacketData, InternetProtocol, TransportProtocol, ApplicationProtocol};
 
-/* implementazione blackboxed */
-//toDo: implementare lettura dei pacchetti per bytes
+const ETHERTYPE_IPV4: u16 = 0x0800;
+const IP_VERSION_IPV4: u8 = 4;
+const TRANSPORT_TCP: u8 = 0x06;
+const TRANSPORT_UDP: u8 = 0x11;
+const PORT_HTTP: u16 = 80;
+const PORT_HTTPS: u16 = 443;
+const PORT_DNS: u16 = 53;
+
 pub fn packet_mapper(packet_data: &[u8]) -> Option<PacketData> {
-    let ethernet: EthernetPacket<'_> = EthernetPacket::new(packet_data)?;
+    let packet_len: usize = packet_data.len();
 
-    if ethernet.get_ethertype() != EtherTypes::Ipv4 {
+    //check validità del pacchetto per posizione len
+    if packet_len < 34 {
+        return None; 
+    }
+
+    //check se il pacchetto  Frame ehthernet -> IPv4
+    let ethernet: u16 = u16::from_be_bytes([packet_data[12], packet_data[13]]);
+    if ethernet != ETHERTYPE_IPV4 {
+        return None; 
+    }
+    //check versionone 
+    let ip_offset: usize = 14; 
+    let version = packet_data[ip_offset] >> 4;// 4 bit di versione con sintassi
+    if version != IP_VERSION_IPV4 {
         return None;
     }
 
-    let ipv4: Ipv4Packet<'_> = Ipv4Packet::new(ethernet.payload())?;
-    let source_ip: String = ipv4.get_source().to_string();
-    let length: usize = ipv4.packet().len();
+    // correzione offset per calcolare l'header
+    let ihl: u8 = (packet_data[ip_offset] & 0x0F) * 4;
+    let transport_offset = ip_offset + ihl as usize;
 
-    match ipv4.get_next_level_protocol() {
-        IpNextHeaderProtocols::Tcp => {
-            if let Some(tcp) = TcpPacket::new(ipv4.payload()) {
-                let source_port = tcp.get_source();
-                let proto = match source_port {
-                    80 => ProtocolType::Http,
-                    _ => ProtocolType::Tcp,
-                };
-                Some(PacketData {
-                    protocol_type: proto,
-                    source_ip,
-                    source_port,
-                    packet_length: length,
-                })
-            } else {
-                None
-            }
-        }
-        IpNextHeaderProtocols::Udp => {
-            if let Some(udp) = UdpPacket::new(ipv4.payload()) {
-                let source_port = udp.get_source();
-                let proto = match source_port {
-                    53 => ProtocolType::Dns,
-                    _ => ProtocolType::Udp,
-                };
-                Some(PacketData {
-                    protocol_type: proto,
-                    source_ip,
-                    source_port,
-                    packet_length: length,
-                })
-            } else {
-                None
-            }
-        }
-        _ => Some(PacketData {
-            protocol_type: ProtocolType::IPv4,
-            source_ip,
-            source_port: 0,
-            packet_length: length,
-        }),
+    // non tutti i pacchetti hanno le porte!!!!!
+    if packet_len < transport_offset + 4 {
+        return None; 
     }
+
+    let protocol: u8 = packet_data[ip_offset + 9];
+    let source_ip: String = format!(
+        "{}.{}.{}.{}",
+        packet_data[ip_offset + 12],
+        packet_data[ip_offset + 13],
+        packet_data[ip_offset + 14],
+        packet_data[ip_offset + 15]
+    );
+    let destination_ip = format!(
+        "{}.{}.{}.{}",
+        packet_data[ip_offset + 16],
+        packet_data[ip_offset + 17],
+        packet_data[ip_offset + 18],
+        packet_data[ip_offset + 19]
+    );
+
+    let source_port = u16::from_be_bytes([
+        packet_data[transport_offset],
+        packet_data[transport_offset + 1],
+    ]);
+    let destination_port = u16::from_be_bytes([
+        packet_data[transport_offset + 2],
+        packet_data[transport_offset + 3],
+    ]);
+
+    let (transport_layer, application_layer) = match protocol {
+        TRANSPORT_TCP => {
+            let application_protocol = match destination_port {
+                PORT_HTTP => Some(ApplicationProtocol::Http),
+                PORT_HTTPS => Some(ApplicationProtocol::Http),
+                PORT_DNS => Some(ApplicationProtocol::Dns),
+                _ => None,
+            };
+            (Some(TransportProtocol::Tcp), application_protocol)
+        }
+        TRANSPORT_UDP => {
+            let application_protocol = match destination_port {
+                PORT_DNS => Some(ApplicationProtocol::Dns),
+                _ => None,
+            };
+            (Some(TransportProtocol::Udp), application_protocol)
+        }
+        _ => return None,
+    };
+
+    Some(PacketData {
+        internet_layer: InternetProtocol::IPv4,
+        transport_layer,
+        application_layer,
+        source_ip,
+        destination_ip,
+        source_port,
+        destination_port,
+        packet_length: packet_len,
+    })
 }
+
+

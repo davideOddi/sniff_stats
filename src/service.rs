@@ -23,7 +23,18 @@ pub fn monitor_network(){
     println!("Pacchetti catturati: {:?}", packets.len());
     let stats: model::NetworkStats = generate_network_stats(packets);
     println!("Statistiche di rete: {:?}", stats);
+    let output_path = file_path.replace(".pcap", ".json");
+    save_stats_to_file(&stats, &output_path);
+}
 
+fn save_stats_to_file(stats: &model::NetworkStats, file_path: &str) {
+    match util::write_json_file(file_path, stats) {
+        Ok(_) => println!("Statistiche salvate in {}", file_path),
+        Err(e) => 
+            eprintln!("Errore nel salvataggio delle statistiche: {} per input file -> {}" 
+            , e, file_path),
+        
+    }
 }
 
 fn retrieve_data_packets(file_path: &str)-> Vec<model::PacketData> {
