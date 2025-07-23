@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
+use std::fmt;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Config {
@@ -14,16 +14,42 @@ pub enum InternetProtocol {
     IPv4,
 }
 
+impl fmt::Display for InternetProtocol {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            InternetProtocol::IPv4 => write!(f, "IPv4"),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Hash, Serialize, Deserialize)] 
 pub enum TransportProtocol {
     Tcp,
     Udp,
 }
 
+impl fmt::Display for TransportProtocol {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TransportProtocol::Tcp => write!(f, "Tcp"),
+            TransportProtocol::Udp => write!(f, "Udp"),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Hash, Serialize, Deserialize)] 
 pub enum ApplicationProtocol {
     Dns, 
     Http, 
+}
+
+impl fmt::Display for ApplicationProtocol {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ApplicationProtocol::Dns => write!(f, "Dns"),
+            ApplicationProtocol::Http => write!(f, "Http"),
+        }
+    }
 }
 
 #[derive(Debug)] 
@@ -38,14 +64,33 @@ pub struct PacketData {
     pub packet_length: usize,
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Hash, Deserialize)]
 pub enum ProtocolKey {
     Internet(InternetProtocol),
     Transport(TransportProtocol),
     Application(ApplicationProtocol),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+impl fmt::Display for ProtocolKey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ProtocolKey::Internet(p) => write!(f, "{}", p),
+            ProtocolKey::Transport(p) => write!(f, "{}", p),
+            ProtocolKey::Application(p) => write!(f, "{}", p),
+        }
+    }
+}
+
+impl Serialize for ProtocolKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct NetworkStats {
     pub total_packets: usize,
     pub total_bytes_packet: u64,

@@ -23,5 +23,4 @@ pub fn pcap_reader(file_path: &str) -> Result<Vec<PacketData>, Box<dyn StdError>
     }
     return Ok(data_packets);
 
-    
 }
