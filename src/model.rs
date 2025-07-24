@@ -9,7 +9,7 @@ pub struct Config {
     pub parallelism: i8,
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Serialize, Deserialize)] 
+#[derive(Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Clone)] 
 pub enum InternetProtocol {
     IPv4,
 }
@@ -22,7 +22,7 @@ impl fmt::Display for InternetProtocol {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Serialize, Deserialize)] 
+#[derive(Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Clone)] 
 pub enum TransportProtocol {
     Tcp,
     Udp,
@@ -37,7 +37,7 @@ impl fmt::Display for TransportProtocol {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Serialize, Deserialize)] 
+#[derive(Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Clone)] 
 pub enum ApplicationProtocol {
     Dns, 
     Http, 

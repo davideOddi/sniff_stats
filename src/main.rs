@@ -8,5 +8,5 @@ mod stat_helper;
 fn main() {
     let config: model::Config = service::load_config();
     println!("Configurazione caricata: {:?}", config.output_dir);
-    service::monitor_network();
+    service::monitor_network(config);
 }

@@ -3,7 +3,7 @@ use crate::model::NetworkStats;
 use std::collections::HashMap;
 use crate::model::ProtocolKey;
 
-pub fn generate_stats(data_packets: Vec<PacketData>) -> NetworkStats{
+pub fn generate_stats(data_packets: &Vec<PacketData>) -> NetworkStats{
     let mut stats = NetworkStats {
         total_packets: 0,
         total_bytes_packet: 0,
@@ -16,23 +16,23 @@ pub fn generate_stats(data_packets: Vec<PacketData>) -> NetworkStats{
 
     stats.total_packets = data_packets.len();
 
-    for packet in data_packets {
+    for packet in data_packets.iter() {
         stats.total_bytes_packet += packet.packet_length as u64;
         // Incremento le statistiche per ogni layer del protocollo 
         *stats.by_protocol.entry(ProtocolKey::Internet
-            (packet.internet_layer)).or_insert(0) += 1;
+            (packet.internet_layer.clone())).or_insert(0) += 1;
 
-        if let Some(transport_layer) = packet.transport_layer {
+        if let Some(transport_layer) = packet.transport_layer.clone() {
             *stats.by_protocol.entry(ProtocolKey::Transport(transport_layer))
                 .or_insert(0) += 1;
         }
-        if let Some(application_layer) = packet.application_layer {
+        if let Some(application_layer) = packet.application_layer.clone() {
             *stats.by_protocol.entry(ProtocolKey::Application(application_layer))
                 .or_insert(0) += 1;
         }   
 
-        *ip_frequency_map.entry(packet.source_ip).or_insert(0) += 1;
-        *ip_frequency_map.entry(packet.destination_ip).or_insert(0) += 1;
+        *ip_frequency_map.entry(packet.source_ip.clone()).or_insert(0) += 1;
+        *ip_frequency_map.entry(packet.destination_ip.clone()).or_insert(0) += 1;
 
         *port_frequency_map.entry(packet.source_port).or_insert(0) += 1;
         *port_frequency_map.entry(packet.destination_port).or_insert(0) += 1;
