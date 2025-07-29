@@ -134,7 +134,7 @@ fn process_and_save_network_data(
             Ok(())
         }
         Err(e) => {
-            eprintln!("Errore nel processo di salvataggio dei pacchetti: {}", e);
+            eprintln!("Errore nel process_save_packets: {}", e);
             Err(e)
         }
     }
