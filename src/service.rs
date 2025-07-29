@@ -57,24 +57,8 @@ pub fn monitor_network(config: Config) {
         config.parallelism,
         shared_job_rx.clone(),
          move |input, output| {
-            match work_process(input.clone(), output.clone()) {
-                Ok(local_packets) => {
-
-                    let stats = {
-                        let mut all = raw_packets_arc.lock().unwrap();
-                        all.extend(local_packets);
-                        generate_network_stats(&all)
-                    };
-
-                    // Salva le statistiche globali aggiornate
-                    if let Err(e) = write_stats(&stats, &stats_path) {
-                        eprintln!("Errore nel salvataggio delle statistiche globali: {}", e);
-                    }
-
-                    Ok(())
-                }
-                Err(e) => Err(e.to_string()),
-            }
+            process_and_save_network_data(input, output, raw_packets_arc.clone(), &stats_path)
+                .map_err(|e| format!("{}", e))
         },
         );
     // avvio il dispatcher dei job
@@ -126,6 +110,34 @@ fn write_stats(aggregated_stats: &NetworkStats, output_path: &str) -> Result<(),
             eprintln!("Errore nell'aggiornamento del file delle statistiche: {}", e);
             e.into()
         })
+}
+
+fn process_and_save_network_data(
+    input: String,
+    output: String,
+    raw_packets_arc: Arc<Mutex<Vec<PacketData>>>,
+    stats_path: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match work_process(input, output) {
+        Ok(local_packets) => {
+            let stats = {
+                let mut all = raw_packets_arc.lock().unwrap();
+                all.extend(local_packets);
+                generate_network_stats(&all)
+            };
+
+            // Salva le statistiche globali aggiornate
+            if let Err(e) = write_stats(&stats, stats_path) {
+                eprintln!("Errore nel salvataggio delle statistiche globali: {}", e);
+            }
+
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("Errore nel processo di salvataggio dei pacchetti: {}", e);
+            Err(e)
+        }
+    }
 }
 
 
