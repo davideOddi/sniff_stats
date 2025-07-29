@@ -1,11 +1,13 @@
 use crate::job_dispatcher;
 use crate::model;
+use crate::model::NetworkStats;
 use model::Config;
 use crate::util;
 use crate::network_capture;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use crate::thread_helper;
+use crate::model::PacketData;
 
 
 pub fn load_config() -> Config {
@@ -28,9 +30,10 @@ pub fn monitor_network(config: Config) {
     // questa la coda per iinviare i job ai worker
     let (job_tx, job_rx) = std::sync::mpsc::channel::<(String, String)>(); // (input_path, output_path)
 
-    // per creare tanti worker devo PER FORZA usare un Arc<Mutex<Receiver>>
+    // per creare tanti worker devo PER FORZA usare un Arc<Mutex<Receiver>> per il clone
     let shared_job_rx: Arc<Mutex<std::sync::mpsc::Receiver<(String, String)>>> = Arc::new(Mutex::new(job_rx));
 
+    let raw_packets_list: Arc<Mutex<Vec<PacketData>>> = Arc::new(Mutex::new(Vec::new()));
 
     let watcher_result = thread_helper::folder_monitoring_thread(
         PathBuf::from(&config.watch_dir),
@@ -48,14 +51,31 @@ pub fn monitor_network(config: Config) {
         }
     };
 
-    let worker_handles = thread_helper::generate_workers(
+    let raw_packets_arc: Arc<Mutex<Vec<PacketData>>> = Arc::clone(&raw_packets_list);
+    let stats_path: String = format!("{}{}", config.output_dir, "/total_stats.json");
+    let worker_handles: Vec<std::thread::JoinHandle<()>> = thread_helper::generate_workers(
         config.parallelism,
         shared_job_rx.clone(),
-        |input, output| {
-            // converto la funzione in un tipo che può essere usato dai thread e lanciare errori
-            work_process(input, output)
-            .map(|_| ())
-            .map_err(|e| e.to_string())}
+         move |input, output| {
+            match work_process(input.clone(), output.clone()) {
+                Ok(local_packets) => {
+
+                    let stats = {
+                        let mut all = raw_packets_arc.lock().unwrap();
+                        all.extend(local_packets);
+                        generate_network_stats(&all)
+                    };
+
+                    // Salva le statistiche globali aggiornate
+                    if let Err(e) = write_stats(&stats, &stats_path) {
+                        eprintln!("Errore nel salvataggio delle statistiche globali: {}", e);
+                    }
+
+                    Ok(())
+                }
+                Err(e) => Err(e.to_string()),
+            }
+        },
         );
     // avvio il dispatcher dei job
     job_dispatcher::dispatch_jobs(
@@ -78,17 +98,17 @@ pub fn monitor_network(config: Config) {
 fn work_process(input_path: String, output_path: String) -> Result<Vec<model::PacketData>, Box<dyn std::error::Error>> {
     let data_packets: Vec<model::PacketData> = retrieve_data_packets(&input_path)?;
     let stats: model::NetworkStats = generate_network_stats(&data_packets);
-    save_stats_to_file(&stats, &output_path);
+    save_stats_to_file(&stats, &output_path)?;
     Ok(data_packets)
 }
 
-fn save_stats_to_file(stats: &model::NetworkStats, file_path: &str) {
-    match util::write_json_file(file_path, stats) {
-        Ok(_) => println!("Statistiche salvate in {}", file_path),
-        Err(e) => 
-            eprintln!("Errore nel salvataggio delle statistiche: {} per input file -> {}" 
-            , e, file_path),
-    }
+fn save_stats_to_file(stats: &model::NetworkStats, file_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    util::write_json_file(file_path, stats)
+        .map(|_| println!("Statistiche salvate in {}", file_path))
+        .map_err(|e| {
+            eprintln!("Errore nel salvataggio delle statistiche: {} per input file -> {}", e, file_path);
+            e.into()
+        })
 }
 
 fn retrieve_data_packets(file_path: &str) -> Result<Vec<model::PacketData>, Box<dyn std::error::Error>> {
@@ -98,6 +118,14 @@ fn retrieve_data_packets(file_path: &str) -> Result<Vec<model::PacketData>, Box<
 
 fn generate_network_stats(data_packets: &Vec<model::PacketData>) -> model::NetworkStats {
     return crate::stat_helper::generate_stats(data_packets);
+}
+
+fn write_stats(aggregated_stats: &NetworkStats, output_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    util::update_file(output_path, aggregated_stats)
+        .map_err(|e| {
+            eprintln!("Errore nell'aggiornamento del file delle statistiche: {}", e);
+            e.into()
+        })
 }
 
 
