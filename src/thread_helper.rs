@@ -4,8 +4,8 @@ use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use std::thread;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Receiver;
-
-
+use std::thread::{JoinHandle};
+use std::error::Error;
 
 
 pub fn folder_monitoring_thread(path: PathBuf, file_sender: Sender<PathBuf>) 
@@ -52,14 +52,12 @@ pub fn generate_workers<F>(
 where
     F: Fn(String, String) -> Result<(), String> + Send + Sync + 'static,
 {
-    let process = Arc::new(process); // Condivisibile tra thread
+    let process = Arc::new(process);
     let mut worker_handles = Vec::new();
 
     for i in 0..num_workers {
-        // clono tanti worker quanto specificato in config.parallelism
-        // Ogni worker avrà il suo canale di ricezione dei job
         let worker_receiver_clone = Arc::clone(&receiver);
-        let process_clone = Arc::clone(&process); 
+        let process_clone = Arc::clone(&process);
 
         let handle = thread::spawn(move || {
             println!("Worker {} avviato.", i);
@@ -94,6 +92,31 @@ where
         worker_handles.push(handle);
     }
 
-    return worker_handles
+    worker_handles
 }
+
+pub fn aggregator_thread<T, State, UpdateFn, SaveFn>(
+    receiver: Receiver<T>,
+    mut state: State,
+    mut update_state: UpdateFn,
+    mut save_stats: SaveFn,
+) -> JoinHandle<()>
+where
+    T: Send + 'static,
+    State: Send + 'static,
+    UpdateFn: FnMut(&mut State, T) + Send + 'static,
+    SaveFn: FnMut(&State) -> Result<(), Box<dyn Error>> + Send + 'static,
+{
+    thread::spawn(move || {
+        while let Ok(item) = receiver.recv() {
+            update_state(&mut state, item);
+
+            if let Err(e) = save_stats(&state) {
+                eprintln!("Errore nel salvataggio delle statistiche: {}", e);
+            }
+        }
+        println!("Thread aggregatore terminato.");
+    })
+}
+
 
