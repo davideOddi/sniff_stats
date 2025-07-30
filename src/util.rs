@@ -1,7 +1,8 @@
 use std::{fs::{File, rename}, path::{Path}};
 use std::io;
 use std::fs;
-
+use tokio::fs::File as AsyncFile;
+use tokio::io::AsyncWriteExt;
 
 pub fn read_json_file_as<T, P>(file_path: P) -> Result<T, Box<dyn std::error::Error>>
     where
@@ -21,6 +22,17 @@ pub fn write_json_file<P, T>(file_path: P, data: &T) -> Result<(), Box<dyn std::
     let file: File = File::create(file_path)?;
     serde_json::to_writer_pretty(file, data)?;
     return Ok(());
+}
+
+pub async fn write_json_file_async<P, T>(file_path: P, data: &T) -> Result<(), Box<dyn std::error::Error>>
+where
+    P: AsRef<std::path::Path>,
+    T: serde::Serialize,
+{
+    let mut file = AsyncFile::create(file_path).await?;  // Asincrona
+    let json = serde_json::to_string_pretty(data)?;
+    file.write_all(json.as_bytes()).await?;
+    Ok(())
 }
 
 pub fn update_file<P, T>(file_path: P, data: &T) -> Result<(), Box<dyn std::error::Error>>

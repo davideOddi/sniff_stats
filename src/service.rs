@@ -9,7 +9,6 @@ use std::sync::{Arc, Mutex};
 use crate::thread_helper;
 use crate::model::PacketData;
 
-
 pub fn load_config() -> Config {
     const CONFIG_PATH: &str = "properties.json";
     let config: Config = 
@@ -79,20 +78,19 @@ pub fn monitor_network(config: Config) {
 }
 
 
-fn work_process(input_path: String, output_path: String) -> Result<Vec<model::PacketData>, Box<dyn std::error::Error>> {
+fn pcap_local_process(input_path: String, output_path: String) -> Result<Vec<model::PacketData>, Box<dyn std::error::Error>> {
     let data_packets: Vec<model::PacketData> = retrieve_data_packets(&input_path)?;
     let stats: model::NetworkStats = generate_network_stats(&data_packets);
-    save_stats_to_file(&stats, &output_path)?;
-    Ok(data_packets)
-}
+    
+    let async_env = tokio::runtime::Runtime::new().unwrap();
 
-fn save_stats_to_file(stats: &model::NetworkStats, file_path: &str) -> Result<(), Box<dyn std::error::Error>> {
-    util::write_json_file(file_path, stats)
-        .map(|_| println!("Statistiche salvate in {}", file_path))
-        .map_err(|e| {
-            eprintln!("Errore nel salvataggio delle statistiche: {} per input file -> {}", e, file_path);
-            e.into()
-        })
+    let _write_handle = async_env.spawn(async move {
+        if let Err(e) = util::write_json_file_async(output_path, &stats).await {
+            eprintln!("Errore durante la scrittura del file: {}", e);
+        }
+    });
+
+    return Ok(data_packets);
 }
 
 fn retrieve_data_packets(file_path: &str) -> Result<Vec<model::PacketData>, Box<dyn std::error::Error>> {
@@ -118,7 +116,7 @@ fn process_and_save_network_data(
     raw_packets_arc: Arc<Mutex<Vec<PacketData>>>,
     stats_path: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    match work_process(input, output) {
+    match pcap_local_process(input, output) {
         Ok(local_packets) => {
             let stats = {
                 let mut all = raw_packets_arc.lock().unwrap();
@@ -126,7 +124,6 @@ fn process_and_save_network_data(
                 generate_network_stats(&all)
             };
 
-            // Salva le statistiche globali aggiornate
             if let Err(e) = write_stats(&stats, stats_path) {
                 eprintln!("Errore nel salvataggio delle statistiche globali: {}", e);
             }
