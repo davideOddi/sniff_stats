@@ -4,10 +4,12 @@ use crate::model::NetworkStats;
 use model::Config;
 use crate::util;
 use crate::network_capture;
+use std::error::Error;
 use std::path::PathBuf;
 use crate::thread_helper;
 use crate::model::PacketData;
-use std::sync::{mpsc::{channel, Sender}, Arc, Mutex};
+use std::sync::{mpsc::{channel}, Arc, Mutex};
+use crate::thread::thread_factory::{create_thread, ThreadType};
 
 pub fn load_config() -> Config {
     const CONFIG_PATH: &str = "properties.json";
@@ -23,57 +25,42 @@ pub fn load_config() -> Config {
 }
 
 pub fn monitor_network(config: Config) {
-    // 1. Watcher → manda file al dispatcher
+    // canale di invio per i file (notified) che dovranno essere procesati dai worker
     let (watcher_file_tx, watcher_file_rx) = channel::<PathBuf>();
-
-    // 2. Dispatcher → manda job (input, output) ai worker
+    // canale di distribuzione dei job con i file path da processare
     let (job_tx, job_rx) = channel::<(String, String)>();
+    // arc mutex PER FORZA per condividere il receiver tra i worker
     let shared_job_rx = Arc::new(Mutex::new(job_rx));
-
-    // 3. Worker → manda batch di pacchetti all’aggregatore
+    // canale per inviare i pacchetti processati all'aggregatore
     let (packet_tx, packet_rx) = channel::<Vec<PacketData>>();
     let packet_tx = Arc::new(packet_tx);
 
-    // 4. Aggregatore → raccoglie i pacchetti in uno stato globale
+    // total_stats forse nel file di properties?
     let stats_path = format!("{}/total_stats.json", config.output_dir);
-    let initial_state: Vec<PacketData> = Vec::new();
+    let target_dir = PathBuf::from(stats_path);
 
-    let update_state = |state: &mut Vec<PacketData>, batch: Vec<PacketData>| {
-        state.extend(batch);
-    };
+    let save_stats = create_save_stats_fn(target_dir.clone());
 
-    let save_stats = move |state: &Vec<PacketData>| -> Result<(), Box<dyn std::error::Error>> {
-        let stats = generate_network_stats(state);
-        write_stats(&stats, &stats_path)?;
-        Ok(())
-    };
+    let aggregator = create_thread(ThreadType::Aggregator {
+    name: "Aggregatore statistiche".to_string(),
+    packet_rx,
+    save_stats,
+    });
 
-    let aggregator_handle = thread_helper::aggregator_thread(
-        packet_rx,
-        initial_state,
-        update_state,
-        save_stats,
-    );
 
-    // 5. Watcher della cartella
-    let watcher_result = thread_helper::folder_monitoring_thread(
-        PathBuf::from(&config.watch_dir),
-        watcher_file_tx,
-    );
+    // Watcher della cartella con notify
+    let watcher = create_thread(ThreadType::Watcher {
+    name: "Osservatore Cartella".to_string(),
+    path: PathBuf::from(config.watch_dir.clone()),
+    sender: watcher_file_tx,
+    });
 
-    let _watcher = match watcher_result {
-        Ok(w) => {
-            println!("Watcher avviato e in ascolto su: {}", config.watch_dir);
-            w
-        }
-        Err(e) => {
-            eprintln!("Errore nella creazione del watcher: {}", e);
-            std::process::exit(1);
-        }
-    };
+    // serve per mantenere il watcher attivo
+    let watcher_ancor = watcher;
 
-    // 6. Worker thread pool
-    let worker_handles = thread_helper::generate_workers(
+    // creo tanti worker quanto config.parallelism 
+    //e ogni worker riceve un job dal canale condiviso (pcap_local_process)
+    let worker_handles: Vec<std::thread::JoinHandle<()>> = thread_helper::generate_workers(
         config.parallelism,
         shared_job_rx,
         {
@@ -92,21 +79,22 @@ pub fn monitor_network(config: Config) {
         },
     );
 
-    // 7. Dispatcher dei job
+    // smista i file ricevuti dal watcher ai worker dopo avergli assegnato il job
     job_dispatcher::dispatch_jobs(watcher_file_rx, &job_tx, &config.output_dir);
 
     println!("Chiusura dei job e attesa dei worker...");
     drop(job_tx); // Chiude il canale: i worker termineranno
 
+    //attendo la fine dei processi dei worker
     for (i, handle) in worker_handles.into_iter().enumerate() {
         if let Err(e) = handle.join() {
             eprintln!("Errore nel join del worker {}: {:?}", i, e);
         }
     }
 
-    // 8. Chiude l’ultimo sender → il receiver esce correttamente
+    // Chiude l’ultimo sender e aspetta che l'aggragator_thread termini
     drop(packet_tx);
-    aggregator_handle.join().unwrap();
+    aggregator.join();
 
     println!("Tutti i worker e l'aggregatore hanno terminato.");
 }
@@ -137,7 +125,7 @@ fn generate_network_stats(data_packets: &Vec<model::PacketData>) -> model::Netwo
     return crate::stat_helper::generate_stats(data_packets);
 }
 
-fn write_stats(aggregated_stats: &NetworkStats, output_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub fn write_stats(aggregated_stats: &NetworkStats, output_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     util::update_file(output_path, aggregated_stats)
         .map_err(|e| {
             eprintln!("Errore nell'aggiornamento del file delle statistiche: {}", e);
@@ -145,24 +133,14 @@ fn write_stats(aggregated_stats: &NetworkStats, output_path: &str) -> Result<(),
         })
 }
 
-pub fn process_and_save_network_data(
-    input: String,
-    output: String,
-    packet_tx: &Arc<Sender<Vec<PacketData>>>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    match pcap_local_process(input, output) {
-        Ok(local_packets) => {
-            let sender = Arc::clone(packet_tx);
-            if let Err(e) = sender.send(local_packets) {
-                eprintln!("Errore nell'invio del batch da: {}", e);
-            }
-            Ok(())
-        }
-        Err(e) => {
-            eprintln!("Errore nel process_save_packets: {}", e);
-            Err(e)
-        }
-    }
+pub fn create_save_stats_fn(
+    output: PathBuf,
+) -> Box<dyn Fn(&Vec<PacketData>) -> Result<(), Box<dyn Error>> + Send + Sync + 'static> {
+    Box::new(move |state: &Vec<PacketData>| -> Result<(), Box<dyn Error>> {
+        let stats = generate_network_stats(state);
+        write_stats(&stats, &output)?;
+        Ok(())
+    })
 }
 
 

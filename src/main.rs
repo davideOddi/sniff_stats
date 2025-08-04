@@ -6,6 +6,7 @@ mod pcap_helper;
 mod stat_helper;
 mod thread_helper;
 mod job_dispatcher;
+mod thread;
 
 fn main() {
     let config: model::Config = service::load_config();
