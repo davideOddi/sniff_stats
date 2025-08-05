@@ -1,14 +1,10 @@
 use crate::model;
-use crate::thread::thread_factory::create_thread;
-use crate::thread::thread_factory::ThreadHandle;
-use crate::thread::thread_factory::ThreadType;
-use model::Config;
+use crate::thread::factory::{ThreadType, ThreadHandle, create_thread};
+use model::{Config, PacketData};
 use crate::util;
 use std::error::Error;
 use std::path::PathBuf;
-use std::sync::mpsc::Receiver;
-use std::sync::mpsc::Sender;
-use crate::model::PacketData;
+use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{mpsc::{channel}, Arc, Mutex};
 
 pub fn load_config() -> Config {

@@ -1,2 +1,2 @@
-pub mod thread_factory;
-pub mod thread_model;
+pub mod factory;
+pub mod model;

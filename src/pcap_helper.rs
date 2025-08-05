@@ -11,28 +11,24 @@ const PORT_DNS: u16 = 53;
 pub fn packet_mapper(packet_data: &[u8]) -> Option<PacketData> {
     let packet_len: usize = packet_data.len();
 
-    //check validità del pacchetto per posizione len
     if packet_len < 34 {
         return None; 
     }
 
-    //check se il pacchetto  Frame ehthernet -> IPv4
     let ethernet: u16 = u16::from_be_bytes([packet_data[12], packet_data[13]]);
     if ethernet != ETHERTYPE_IPV4 {
         return None; 
     }
-    //check versionone 
+
     let ip_offset: usize = 14; 
-    let version = packet_data[ip_offset] >> 4;// 4 bit di versione con sintassi
+    let version = packet_data[ip_offset] >> 4;
     if version != IP_VERSION_IPV4 {
         return None;
     }
 
-    // correzione offset per calcolare l'header
     let ihl: u8 = (packet_data[ip_offset] & 0x0F) * 4;
     let transport_offset = ip_offset + ihl as usize;
 
-    // non tutti i pacchetti hanno le porte!!!!!
     if packet_len < transport_offset + 4 {
         return None; 
     }

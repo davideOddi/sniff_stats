@@ -1,6 +1,5 @@
 use std::{fs::{File, rename}, path::{Path}};
-use std::io;
-use std::fs;
+use std::{fs, io};
 
 
 pub fn read_json_file_as<T, P>(file_path: P) -> Result<T, Box<dyn std::error::Error>>
