@@ -1,5 +1,7 @@
-use std::{sync::mpsc::Receiver, sync::{Arc, Mutex}, thread::{self, JoinHandle}};
+use std::{sync::mpsc::{Receiver, Sender},sync::{Arc, Mutex}, thread::{self, JoinHandle}};
 use notify::RecommendedWatcher;
+
+use crate::model::PacketData;
 
 pub struct Thread {
     pub name: String,
@@ -41,12 +43,12 @@ impl ThreadWatcher {
     }
 }
 
-pub struct ThreadAggregator<T> {
+pub struct ThreadWithState<T> {
     pub base: Thread,
     pub state: Arc<Mutex<T>>,
 }
 
-impl<T> ThreadAggregator<T>
+impl<T> ThreadWithState<T>
 where
     T: Send + 'static,
 {
@@ -72,7 +74,7 @@ where
             println!("[{}] Thread Terminato", thread_name);
         });
 
-        return ThreadAggregator {
+        return ThreadWithState {
             base: thread,
             state,
         }
@@ -82,4 +84,59 @@ where
         self.base.join();
     }
 
+}
+
+pub struct ThreadWorker {
+    pub base: Thread,
+}
+
+impl ThreadWorker {
+    pub fn join(self) {
+        self.base.join();
+    }
+
+    pub fn new(
+        name: &str,
+        receiver: Arc<Mutex<Receiver<(String, String)>>>,
+        packet_sender: Arc<std::sync::mpsc::Sender<Vec<PacketData>>>,
+        worker_fn: Arc<dyn Fn(String, String) -> Result<Vec<PacketData>, Box<dyn std::error::Error>> + Send + Sync + 'static>,
+    ) -> Self {
+        let thread_name = name.to_string();
+        let thread_name_clone = thread_name.clone();
+        let worker_fn_clone = Arc::clone(&worker_fn);
+        let packet_sender_clone = Arc::clone(&packet_sender);
+        let receiver_clone = Arc::clone(&receiver);
+
+        let job = move || {
+            loop {
+                let maybe_job = {
+                    let lock = receiver_clone.lock().unwrap();
+                    lock.recv()
+                };
+
+                match maybe_job {
+                    Ok((input, output)) => {
+                        match worker_fn_clone(input.clone(), output.clone()) {
+                            Ok(packets) => {
+                                if let Err(e) = packet_sender_clone.send(packets) {
+                                    eprintln!("[{}] Errore invio packet: {}", thread_name, e);
+                                    break;
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("[{}] Errore job {} → {}: {}", thread_name, input, output, e);
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        println!("[{}] Nessun altro job. Terminazione.", thread_name);
+                        break;
+                    }
+                }
+            }
+        };
+
+        let thread = Thread::new(&thread_name_clone, job);
+        Self { base: thread }
+    }
 }

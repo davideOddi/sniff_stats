@@ -1,13 +1,15 @@
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::mpsc::{Sender, Receiver};
+use std::sync::{Arc, Mutex};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher, Result as NotifyResult};
-use crate::thread::thread_model::{Thread, ThreadWatcher, ThreadAggregator};
+use crate::thread::thread_model::{Thread, ThreadWatcher, ThreadWithState, ThreadWorker};
 use crate::model::PacketData;
 
 pub enum ThreadHandle {
     Watcher(ThreadWatcher),
-    Aggregator(ThreadAggregator<Vec<PacketData>>),
+    Aggregator(ThreadWithState<Vec<PacketData>>),
+    Worker(ThreadWorker),
 }
 
 pub enum ThreadType{
@@ -16,10 +18,16 @@ pub enum ThreadType{
         path: PathBuf,
         sender: Sender<PathBuf>,
     },
-   Aggregator {
+    Aggregator {
         name: String,
         packet_rx: Receiver<Vec<PacketData>>,
         save_stats: Box<dyn Fn(&Vec<PacketData>) -> Result<(), Box<dyn Error>> + Send + 'static + Sync>,
+    },
+    Worker {
+        name: String,
+        job_rx: Arc<Mutex<Receiver<(String, String)>>>,
+        packet_tx: Arc<Sender<Vec<PacketData>>>,
+        worker_fn: Arc<dyn Fn(String, String) -> Result<Vec<PacketData>, Box<dyn Error>> + Send + Sync + 'static>,
     },
 }
 
@@ -28,6 +36,7 @@ impl ThreadHandle{
         match self {
             ThreadHandle::Watcher(w) => w.join(),
             ThreadHandle::Aggregator(a) => a.join(),
+            ThreadHandle::Worker(w) => w.join(),
         }
     }
 }
@@ -77,10 +86,10 @@ pub fn create_stats_aggregator(
     name: &str,
     packet_rx: Receiver<Vec<PacketData>>,
     save_stats: Box<dyn Fn(&Vec<PacketData>) -> Result<(), Box<dyn Error>> + Send + Sync + 'static>,
-) -> ThreadAggregator<Vec<PacketData>> {
+) -> ThreadWithState<Vec<PacketData>> {
     let name = name.to_string();
 
-    ThreadAggregator::new(
+    ThreadWithState::new(
         &name,              
         Vec::new(),         
         packet_rx,
@@ -116,5 +125,10 @@ pub fn create_thread(thread_type: ThreadType) -> ThreadHandle {
 
             ThreadHandle::Aggregator(aggregator)
         },
+        ThreadType::Worker { name, job_rx, packet_tx, worker_fn } => {
+            let worker = 
+                ThreadWorker::new(&name, job_rx, packet_tx, worker_fn);
+            ThreadHandle::Worker(worker)
+        }
     }
 }
