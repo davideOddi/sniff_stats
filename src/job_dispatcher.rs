@@ -1,29 +1,31 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
+use std::sync::mpsc::Receiver;
 
 pub fn dispatch_jobs(
-    watcher_file_rx: std::sync::mpsc::Receiver<PathBuf>,
-    job_tx: &Sender<(String, String)>,
+    watcher_rx: Receiver<PathBuf>,
+    job_senders: Vec<Sender<(String, String)>>,
     output_dir: &str,
 ) {
-    let mut processed_files = HashSet::new();
+    let mut seen_files = HashSet::new();
+    let mut index = 0;
 
-    // Logica di invio: riceve file dal watcher e li invia ai worker
-    // solo per file non processatu
-    for pcap_path in watcher_file_rx {
-        if !processed_files.insert(pcap_path.clone()) {
-            println!("File già in coda o processato: {:?}", pcap_path);
-            continue;
-        }
+    for pcap_path in watcher_rx {
+        if pcap_path.extension().and_then(|e| e.to_str()) == Some("pcap") {
+            let path_str = pcap_path.to_string_lossy().to_string();
 
-        match path_builder(&pcap_path, output_dir) {
-            Some((input_path, output_path)) => {
-                if let Err(e) = job_tx.send((input_path, output_path)) {
-                    eprintln!("Errore nell'invio del job al worker: {}", e);
+            if seen_files.insert(path_str.clone()) {
+                if let Some((input, output)) = path_builder(&pcap_path, output_dir) {
+                    let sender = &job_senders[index % job_senders.len()];
+                    if let Err(e) = sender.send((input, output)) {
+                        eprintln!("[dispatcher] Errore invio job: {}", e);
+                    }
+                    index += 1;
+                } else {
+                    eprintln!("[dispatcher] Errore nella costruzione dei path per file: {:?}", pcap_path);
                 }
             }
-            None => continue,
         }
     }
 }
