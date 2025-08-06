@@ -17,13 +17,13 @@ pub fn load_config() -> Config {
     }
 }
 
-pub fn monitor_network(config: Config) {
+pub fn monitor_network(config: Config) -> Result<(), Box<dyn Error>> {
     let (watcher_tx, watcher_rx) = channel::<PathBuf>();
 
     let (packet_tx, packet_rx) = channel::<Vec<PacketData>>();
     let packet_tx = Arc::new(packet_tx);
 
-    let worker_fn: Arc<fn(String, String) -> Result<Vec<PacketData>, Box<dyn Error>>> =
+    let worker_fn: Arc<dyn Fn(String, String) -> Result<Vec<PacketData>, Box<dyn Error>> + Send + Sync> =
         Arc::new(process_local_pcap);
 
     let (worker_handles, job_senders) =
@@ -38,8 +38,8 @@ pub fn monitor_network(config: Config) {
     wait_for_workers(worker_handles);
     aggregator_handle.join();
     watcher_handle.join();
-
-    println!("Tutti i thread hanno terminato.");
+    
+    return Ok(());
 }
 
 fn create_watcher(watch_dir: &str, sender: Sender<PathBuf>) -> ThreadHandle {

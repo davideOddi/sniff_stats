@@ -10,5 +10,5 @@ mod thread;
 fn main() {
     let config: model::Config = service::load_config();
     println!("Configurazione caricata: {:?}", config.output_dir);
-    service::monitor_network(config);
+    let _ = service::monitor_network(config);
 }
